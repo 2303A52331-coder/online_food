@@ -1,0 +1,268 @@
+<!--
+Online Food Management System - Design Patterns Demo
+Contains a single-file HTML+CSS+JS demo that shows:
+ - Observer pattern: subscribers (Kitchen Display, Delivery Dashboard) listen to OrderManager
+ - Strategy pattern: different pricing/discount strategies (Normal, FestivalDiscount, Loyalty)
+ - Command pattern: encapsulate actions on orders (Prepare, Deliver, Cancel)
+
+Instructions:
+1. Save this file as `index.html` and open in a modern browser.
+2. Use the UI to create orders and try different strategies and commands.
+
+This is educational/demo code — not production-ready.
+-->
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Online Food Management — Patterns Demo</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa6b2;--accent:#ff6b35}
+    body{font-family:Inter,system-ui,Arial;background:linear-gradient(180deg,#071024 0%, #0f1724 100%);color:#e6eef6;margin:0;padding:24px}
+    .wrap{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:360px 1fr;gap:20px}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));padding:16px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    h1{margin:0 0 8px;font-size:20px}
+    small{color:var(--muted)}
+    label{display:block;margin-top:10px;font-size:13px;color:var(--muted)}
+    input,select,button{width:100%;padding:8px;margin-top:6px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    .orders{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+    .order{padding:10px;border-radius:8px;background:rgba(255,255,255,0.02);display:flex;justify-content:space-between;align-items:center}
+    .order .meta{font-size:13px;color:var(--muted)}
+    .btn-row{display:flex;gap:8px}
+    .small-btn{padding:6px 8px;font-size:13px;border-radius:6px}
+    .accent{background:linear-gradient(90deg,var(--accent),#ffa87a);color:#08111a;border:none}
+    .muted-btn{background:rgba(255,255,255,0.03);border:none}
+    .log{height:180px;overflow:auto;padding:8px;background:rgba(0,0,0,0.2);border-radius:8px;margin-top:10px;font-size:13px}
+    .flex{display:flex;gap:10px}
+    .col{display:flex;flex-direction:column}
+    footer{margin-top:18px;color:var(--muted);font-size:12px;text-align:center}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>New Order</h1>
+      <small>Create a mock order to trigger patterns</small>
+
+      <label>Customer name<input id="custName" placeholder="e.g. Asha"/></label>
+      <label>Items (comma separated)<input id="items" placeholder="Paneer Butter Masala, Naan"/></label>
+      <label>Amount (₹)<input id="amount" type="number" value="250"/></label>
+
+      <label>Pricing Strategy
+        <select id="strategySelect">
+          <option value="normal">Normal Pricing</option>
+          <option value="festival">Festival Discount (20% off)</option>
+          <option value="loyalty">Loyalty (₹50 off on ≥₹300)</option>
+        </select>
+      </label>
+
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button id="createOrder" class="accent">Create Order</button>
+        <button id="clearLog" class="muted-btn">Clear Log</button>
+      </div>
+
+      <div style="margin-top:14px">
+        <h3 style="margin:0">System Observers</h3>
+        <small>Kitchen Display & Delivery Dashboard will be notified of new orders</small>
+        <div class="flex" style="margin-top:10px">
+          <div class="card" style="flex:1">
+            <strong>Kitchen Display</strong>
+            <div id="kitchenList" class="orders"></div>
+          </div>
+          <div class="card" style="flex:1">
+            <strong>Delivery Dashboard</strong>
+            <div id="deliveryList" class="orders"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="card">
+      <h1>Orders & Commands</h1>
+      <small>Use Command buttons to act on orders (Prepare / Deliver / Cancel)</small>
+
+      <div id="ordersContainer" class="orders"></div>
+
+      <h3 style="margin-top:12px">Event Log</h3>
+      <div id="log" class="log"></div>
+      <footer>Demo implements Observer, Strategy & Command patterns in plain JavaScript.</footer>
+    </div>
+  </div>
+
+  <script>
+    // ----------------------
+    // Utility
+    // ----------------------
+    function uid(prefix = '') { return prefix + Math.random().toString(36).slice(2,9); }
+    function appendLog(msg){ const el = document.getElementById('log'); const time = new Date().toLocaleTimeString(); el.innerHTML = `<div>[${time}] ${msg}</div>` + el.innerHTML; }
+
+    // ======================
+    // Observer Pattern
+    // ======================
+    // Subject (OrderManager) keeps list of observers and notifies them on new orders
+    class Subject {
+      constructor(){ this.observers = []; }
+      addObserver(obs){ this.observers.push(obs); }
+      removeObserver(obs){ this.observers = this.observers.filter(o=>o!==obs); }
+      notify(event, payload){ this.observers.forEach(o=>{ if(typeof o.update === 'function') o.update(event,payload); }); }
+    }
+
+    // Concrete observers
+    class KitchenDisplay {
+      constructor(rootId){ this.root = document.getElementById(rootId); }
+      update(event,order){ if(event==='order_created'){ const div = document.createElement('div'); div.className='order'; div.innerHTML = `<div><strong>${order.customer}</strong><div class='meta'>${order.items.join(', ')} — ₹${order.finalAmount}</div></div>`; this.root.prepend(div); appendLog(`Kitchen: New order #${order.id} for ${order.customer}`); } }
+    }
+
+    class DeliveryDashboard {
+      constructor(rootId){ this.root = document.getElementById(rootId); }
+      update(event,order){ if(event==='order_created'){ const div = document.createElement('div'); div.className='order'; div.innerHTML = `<div><strong>${order.customer}</strong><div class='meta'>Addr: (mock) — ₹${order.finalAmount}</div></div>`; this.root.prepend(div); appendLog(`Delivery: Ready to assign for order #${order.id}`); } }
+    }
+
+    // ======================
+    // Strategy Pattern
+    // ======================
+    // Pricing strategies implement calculate(amount, order) -> finalAmount
+
+    class NormalPricing {
+      calculate(amount){ return amount; }
+    }
+    class FestivalDiscount {
+      calculate(amount){ return +(amount * 0.8).toFixed(2); }
+    }
+    class LoyaltyPricing {
+      calculate(amount){ return amount>=300 ? amount-50 : amount; }
+    }
+
+    // Strategy Context
+    class PricingContext {
+      constructor(){ this.strategy = new NormalPricing(); }
+      setStrategy(s){ this.strategy = s; }
+      calculate(amount){ return this.strategy.calculate(amount); }
+    }
+
+    // ======================
+    // Command Pattern
+    // ======================
+    // Command interface: execute()
+    class Command {
+      execute(){ throw new Error('execute must be implemented'); }
+    }
+
+    class PrepareCommand extends Command {
+      constructor(order, receiver){ super(); this.order = order; this.receiver = receiver; }
+      execute(){ this.receiver.prepare(this.order); }
+    }
+    class DeliverCommand extends Command {
+      constructor(order, receiver){ super(); this.order = order; this.receiver = receiver; }
+      execute(){ this.receiver.deliver(this.order); }
+    }
+    class CancelCommand extends Command {
+      constructor(order, receiver){ super(); this.order = order; this.receiver = receiver; }
+      execute(){ this.receiver.cancel(this.order); }
+    }
+
+    // Receiver: OrderService handles actual actions
+    class OrderService {
+      prepare(order){ order.status='Preparing'; appendLog(`Order #${order.id} set to Preparing`); updateOrderUI(order); }
+      deliver(order){ order.status='Out for Delivery'; appendLog(`Order #${order.id} is Out for Delivery`); updateOrderUI(order); }
+      cancel(order){ order.status='Cancelled'; appendLog(`Order #${order.id} was Cancelled`); updateOrderUI(order); }
+    }
+
+    // ----------------------
+    // Order Manager (Subject + store)
+    // ----------------------
+    class OrderManager extends Subject {
+      constructor(){ super(); this.orders = []; }
+      createOrder(payload){ const id = uid('ORD-'); const order = Object.assign({ id, status:'New', createdAt: new Date() }, payload); this.orders.unshift(order); this.notify('order_created', order); appendLog(`OrderManager: Created order #${order.id}`); return order; }
+      findOrder(id){ return this.orders.find(o=>o.id===id); }
+    }
+
+    // ----------------------
+    // UI wiring & helpers
+    // ----------------------
+    const orderManager = new OrderManager();
+    const kitchen = new KitchenDisplay('kitchenList');
+    const delivery = new DeliveryDashboard('deliveryList');
+    orderManager.addObserver(kitchen);
+    orderManager.addObserver(delivery);
+
+    const pricing = new PricingContext();
+    const orderService = new OrderService();
+
+    // map strategy keys to concrete strategies
+    const strategyMap = {
+      'normal': new NormalPricing(),
+      'festival': new FestivalDiscount(),
+      'loyalty': new LoyaltyPricing()
+    };
+
+    // DOM refs
+    const custName = document.getElementById('custName');
+    const itemsInput = document.getElementById('items');
+    const amountInput = document.getElementById('amount');
+    const createBtn = document.getElementById('createOrder');
+    const ordersContainer = document.getElementById('ordersContainer');
+    const strategySelect = document.getElementById('strategySelect');
+    const clearLogBtn = document.getElementById('clearLog');
+
+    function renderOrderCard(order){
+      const card = document.createElement('div'); card.className='order';
+      const left = document.createElement('div'); left.innerHTML = `<div><strong>${order.customer}</strong></div><div class='meta'>${order.items.join(', ')} — ₹${order.finalAmount}</div><div class='meta'>Status: ${order.status}</div>`;
+      const right = document.createElement('div'); right.className='btn-row';
+
+      const prepareBtn = document.createElement('button'); prepareBtn.className='small-btn muted-btn'; prepareBtn.textContent='Prepare';
+      const deliverBtn = document.createElement('button'); deliverBtn.className='small-btn accent'; deliverBtn.textContent='Deliver';
+      const cancelBtn = document.createElement('button'); cancelBtn.className='small-btn muted-btn'; cancelBtn.textContent='Cancel';
+
+      // command creation
+      prepareBtn.addEventListener('click', ()=>{ const cmd = new PrepareCommand(order, orderService); cmd.execute(); });
+      deliverBtn.addEventListener('click', ()=>{ const cmd = new DeliverCommand(order, orderService); cmd.execute(); });
+      cancelBtn.addEventListener('click', ()=>{ const cmd = new CancelCommand(order, orderService); cmd.execute(); });
+
+      right.append(prepareBtn, deliverBtn, cancelBtn);
+      card.append(left, right);
+      card.dataset.id = order.id;
+      return card;
+    }
+
+    function updateOrderUI(order){
+      const existing = ordersContainer.querySelector(`[data-id='${order.id}']`);
+      const newCard = renderOrderCard(order);
+      if(existing) ordersContainer.replaceChild(newCard, existing);
+      else ordersContainer.prepend(newCard);
+    }
+
+    createBtn.addEventListener('click', ()=>{
+      const name = custName.value.trim() || 'Guest';
+      const items = itemsInput.value.split(',').map(s=>s.trim()).filter(Boolean);
+      const amount = parseFloat(amountInput.value) || 0;
+      const stratKey = strategySelect.value;
+      pricing.setStrategy(strategyMap[stratKey]);
+      const final = pricing.calculate(amount);
+      const order = orderManager.createOrder({ customer: name, items, amount, finalAmount: final });
+      updateOrderUI(order);
+      // After order created, you could create a default command to assign to kitchen, etc.
+    });
+
+    clearLogBtn.addEventListener('click', ()=>{ document.getElementById('log').innerHTML = '' });
+
+    // Seed demo orders
+    (function seed(){
+      const seedOrders = [
+        { customer:'Ravi', items:['Masala Dosa'], amount:120, strategy:'normal' },
+        { customer:'Meera', items:['Butter Chicken','Naan'], amount:420, strategy:'loyalty' }
+      ];
+      seedOrders.forEach(s=>{
+        pricing.setStrategy(strategyMap[s.strategy] || strategyMap.normal);
+        const final = pricing.calculate(s.amount);
+        const order = orderManager.createOrder({ customer: s.customer, items: s.items, amount: s.amount, finalAmount: final });
+        updateOrderUI(order);
+      })
+    })();
+
+  </script>
+</body>
+</html>
